@@ -15,15 +15,7 @@
 //---------------------------------
 // setting area
 
-$ACCEPT_HOST        = 'localhost';          //only the HTTP request with this doname would be accepted
-
-$IS_ROOT_SERVER     = true;                 //all the file in the CDN will be same as the file in the Root Server
-$SERVER_KEY         = 'WzTZkJnBhS0nbcMk';   //The key for this server
-$SOURCE_SERVER_PATH = 'http://127.0.0.1/';  //the path of the source server 
-$SOURCE_SERVER_HOST = 'localhost';          //the acceptable host for the server,this field also be the key of AES
-$SOURCE_SERVER_KEY  = '';                   //The Key for the source server
-
-$CHILD_SERVER_LIST  = array();
+require_once('./CDN.inc.php');
 
 
 //---------------------------------
@@ -34,6 +26,9 @@ $file_list = array();
 
 $local_file_list = array();
 $local_dir_list = array();
+
+$remote_file_list = array();
+$remote_dir_list = array();
 
 
 //---------------------------------
@@ -141,11 +136,22 @@ class aes {
     }
 }
 
+function logger($info)
+{
+    global $Enable_Log;
+    if($Enable_Log!=true)
+        return;
+    $fp = fopen('./log.log','a');
+    fprintf($fp,"%d %s\r\n",time(),$info);    
+    fclose($fp);
+}
+
 //error dealing
 function OnError($info)
 {
     if(file_exists('./.lock'))
         unlink('./.lock');
+    logger($info);
     die($info);
 }
 
@@ -190,7 +196,8 @@ function tree($directory)
 		} 
 		else if(($file!=".") AND ($file!=".."))
         {
-            $local_file_list[]="$directory/$file";
+            if(!is_dir("$directory/$file"))
+                $local_file_list[]="$directory/$file";
         }
 	} 
 
@@ -201,6 +208,10 @@ function tree($directory)
 function load_hash_cache($ifUpdate)
 {
     global $file_list,$dir_list;
+    
+    if(!file_exists('./.cache'))
+        return;
+    
     $fp = fopen('./.cache','r');
     
     if($fp == false)
@@ -298,7 +309,7 @@ function trace_new_file()
     }
 }
 
-//
+//send file encoded
 function send_file($path)
 {
     global $SERVER_KEY;
@@ -318,6 +329,188 @@ function send_file($path)
         $AES->setKey($SERVER_KEY);
         echo base64_encode($AES->encode($cont));
     }
+}
+
+//delete all the dir
+//copy from http://www.cnblogs.com/xiaochaohuashengmi/archive/2011/05/13/2045158.html
+function deldir($dir) {
+    //delete the files first
+    $dh=opendir($dir);
+    while ($file=readdir($dh)) 
+    {
+        if($file!="." && $file!="..") 
+        {
+            $fullpath=$dir."/".$file;
+            if(!is_dir($fullpath)) 
+            {
+                unlink($fullpath);
+            } 
+            else 
+            {
+                deldir($fullpath);
+            }
+        }
+    }
+ 
+    closedir($dh);
+    //delete the dir
+    if(rmdir($dir)) 
+    {
+        return true;
+    } 
+    else 
+    {
+        return false;
+    }
+}
+
+//clone server
+function clone_server()
+{
+    global $SOURCE_SERVER_PATH,$SOURCE_SERVER_HOST,$SOURCE_SERVER_KEY;
+    global $dir_list,$file_list,$remote_file_list,$remote_dir_list;
+    
+    $remote_cache = base64_decode(send_get($SOURCE_SERVER_PATH.'?task=list',$SOURCE_SERVER_HOST));
+    if($remote_cache==false)
+    {
+        OnError('error in getting list from source server');
+    }
+    
+    $AES = new aes();
+    $AES->setKey($SOURCE_SERVER_KEY);
+    $remote_cache_decode = $AES->decode($remote_cache);
+    
+    logger($remote_cache_decode);
+    
+    $token = strtok($remote_cache_decode,"\n");
+    while($line = sscanf($token,'%s %s %d %s %s\n')) 
+    {
+        list($type,$path,$time,$md5,$sha) = $line;
+
+        if($type == 'dir')
+        {
+            $File = new HashCache(false,$path,'0','0',0);
+            $remote_dir_list[$path] = $File;
+        }
+        else if($type == 'file')
+        {
+            $File = new HashCache(false,$path,$md5,$sha,$time);
+            $remote_file_list[$path] = $File;
+        }
+        else
+        {
+            OnError('Error:Remote Cache File is in the Wrong Format!');
+        }
+        $token = strtok("\n");
+    }
+    
+    //logger(print_r($remote_dir_list,true));
+    //logger(print_r($remote_file_list,true));
+    
+    //delete the useless dir
+    foreach($dir_list as $path=>$hash)
+    {
+        if(!isset($remote_dir_list[$path]))//local file contain the dir that remote do not have
+        {
+            logger('delete dir:'.$path);
+            deldir($path);
+        }
+    }
+    
+    //create the dir not exist
+    foreach($remote_dir_list as $path=>$hash)
+    {
+        if(!isset($dir_list[$path]))
+        {
+            logger('create dir:'.$path);
+            mkdir($path);
+        }
+    }
+    
+    //delete the useless local file and update the local files
+    foreach($file_list as $path=>$hash)
+    {
+        if(!isset($remote_file_list[$path]))//remove the useless file
+        {
+            
+        }
+        else
+        {
+            if($hash->hash_md5==$remote_file_list[$path]->hash_md5 && $hash->hash_sha==$remote_file_list[$path]->hash_sha)
+            {
+                //two file have the same hash
+            }
+            else
+            {
+                //download file from server
+                logger('downloading file:'.$path.' with different hash');
+                while(true)
+                {
+                    $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.$path,$SOURCE_SERVER_HOST);
+                    if($get == 'none') $cont ='';
+                    else $cont = $AES->decode(base64_decode($get));
+                    
+                    if(md5($cont)==$remote_file_list[$path]->hash_md5 && sha1($cont)==$remote_file_list[$path]->hash_sha)
+                    {
+                        if(file_put_contents($path,$cont) === false)
+                        {
+                            logger('could not write to '.$path);
+                            break;
+                        }
+                        else
+                        {
+                            logger('download file:'.$path.' succeed');
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        logger('redownloading for the hash do not same');
+                        logger('count:'.$cont.' md5:'.md5($cont).' md5:'.$remote_file_list[$path]->hash_md5);
+                        sleep(1);
+                    }
+                }
+            }
+        }
+    }    
+    
+    //get the file needed
+    foreach($remote_file_list as $path=>$hash)
+    {
+        if(!isset($file_list[$path]))
+        {
+            //download file from server
+            logger('downloading file:'.$path.' do not exist');
+            while(true)
+            {
+                $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.$path,$SOURCE_SERVER_HOST);
+                if($get == 'none') $cont ='';
+                else $cont = $AES->decode(base64_decode($get));
+                if(md5($cont)==$hash->hash_md5 && sha1($cont)==$hash->hash_sha)
+                {
+                    if(file_put_contents($path,$cont) === false)
+                    {
+                        logger('could not write to '.$path);
+                        break;
+                    }
+                    else
+                    {
+                        logger('downloading file:'.$path.' succeed');
+                        break;
+                    }
+                }
+                else
+                {
+                    logger('redownloading for the hash do not same');
+                    logger('count:'.$cont.' md5:'.md5($cont).' md5:'.$remote_file_list[$path]->hash_md5);
+                    sleep(1);
+                }
+            }
+        }
+    }
+    
+    //write the .cache file
+    file_put_contents('./.cache',$remote_cache_decode);
 }
 
 //------------------------------------------
@@ -346,11 +539,16 @@ else
 
 if($task == 'list')
 {
+    logger('-------------------');
+    logger('Task list running');
+    
     lock_server();//lock the server in case error happen
     
     send_file('./.cache');
     
     unlink('./.lock');//delete the lock file
+    
+    logger('-------------------');
 }
 else if($task == 'get')
 {
@@ -365,15 +563,27 @@ else if($task == 'get')
         OnError('<h1>Error:the path not allowed to contain the father dir!</h1>');
     }
     
+    logger('-------------------');
+    logger('Task get running');
+    
     send_file($path);
+    
+    logger('-------------------');
 }
 else if($task == 'add')
 {
     lock_server();//lock the server in case error happen
+    
+    logger('-------------------');
+    logger('Task add running');
+    
     tree("./data"); 
     load_hash_cache(true);
     trace_new_file();
     save_hash_cache();
+    
+    logger('-------------------');
+    
     unlink('./.lock');//delete the lock file
 }
 else if($task == 'clone')
@@ -392,19 +602,35 @@ else if($task == 'clone')
     flush();
     
     //the connection is closed.do the clone task here
-    
     sleep(rand(2,10));
-        
+    
+    logger('-------------------');
+    logger('Task clone running');
+    
+    //refresh the local cache    
+    tree("./data"); 
+    load_hash_cache(true);
+    trace_new_file();
+    
+    clone_server();
+    
+    logger('-------------------');
+    
     unlink('./.lock');//delete the lock file
 }
 else if($task == 'push')
 {
+    logger('-------------------');
+    logger('Task push running');
+    
     foreach($CHILD_SERVER_LIST as $url => $host)
     {
         echo send_get($url.'?task=clone',$host);    
     }
+    
+    logger('-------------------');
 }
-else if($task == 'help')
+else //if($task == 'help')
 {
     echo '<h1>This is the Help page.</h1>';
 }
