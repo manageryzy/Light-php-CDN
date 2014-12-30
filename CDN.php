@@ -125,9 +125,9 @@ class aes {
      
     public function decode($data) {
         $td = mcrypt_module_open(MCRYPT_RIJNDAEL_256,'',MCRYPT_MODE_CBC,'');
-        $iv = mb_substr($data,0,32,'latin1');
+        $iv = substr($data,0,32);
         mcrypt_generic_init($td,$this->_secret_key,$iv);
-        $data = mb_substr($data,32,mb_strlen($data,'latin1'),'latin1');
+        $data = substr($data,32,strlen($data));
         $data = mdecrypt_generic($td,$data);
         mcrypt_generic_deinit($td);
         mcrypt_module_close($td);
@@ -632,7 +632,7 @@ else if($task == 'push')
 }
 else //if($task == 'help')
 {
-    echo '<h1>This is the Help page.</h1>';
+    echo '<h1>LIGHTphpCDN.</h1>You could get the document from the <a href="https://github.com/manageryzy/Light-php-CDN">github</a> page.';
 }
 
 //print_r($local_dir_list);
