@@ -15,13 +15,15 @@
 //---------------------------------
 // setting area
 
-$ACCEPT_HOST = 'localhost';                 //only the HTTP request with this doname would be accepted
+$ACCEPT_HOST        = 'localhost';          //only the HTTP request with this doname would be accepted
 
-$IS_ROOT_SERVER = true;                     //all the file in the CDN will be same as the file in the Root Server
+$IS_ROOT_SERVER     = true;                 //all the file in the CDN will be same as the file in the Root Server
+$SERVER_KEY         = 'WzTZkJnBhS0nbcMk';   //The key for this server
 $SOURCE_SERVER_PATH = 'http://127.0.0.1/';  //the path of the source server 
 $SOURCE_SERVER_HOST = 'localhost';          //the acceptable host for the server,this field also be the key of AES
+$SOURCE_SERVER_KEY  = '';                   //The Key for the source server
 
-$CHILD_SERVER_LIST = array();
+$CHILD_SERVER_LIST  = array();
 
 
 //---------------------------------
@@ -142,7 +144,8 @@ class aes {
 //error dealing
 function OnError($info)
 {
-    unlink('./.lock');
+    if(file_exists('./.lock'))
+        unlink('./.lock');
     die($info);
 }
 
@@ -155,6 +158,21 @@ function lock_server()
         OnError('error in lock file');
     }
     fclose($fp);
+}
+
+function send_get($url,$host) {
+
+	$options = array(
+        'http' => array(
+            'method' => 'GET',
+			'header' => "Host: $host\r\n",
+			'timeout' => 15 * 60 
+            )
+	);
+	$context = stream_context_create($options);
+	$result = file_get_contents($url, false, $context);
+
+	return $result;
 }
 
 //trace the local file
@@ -280,6 +298,28 @@ function trace_new_file()
     }
 }
 
+//
+function send_file($path)
+{
+    global $SERVER_KEY;
+    if(!file_exists($path))
+    {
+        OnError('<h1>Error:Can not read file!</h1>');
+    }
+    
+    $cont = file_get_contents($path);
+    if($cont == '')
+    {
+        echo 'none';
+    }
+    else
+    { 
+        $AES = new aes();
+        $AES->setKey($SERVER_KEY);
+        echo base64_encode($AES->encode($cont));
+    }
+}
+
 //------------------------------------------
 //   code start here
 
@@ -297,13 +337,77 @@ if(file_exists('./.lock')!=false)
     die('<h1>Sorry ! the CDN is busy now!</h1><br>If you think it is an error,please delete the .lock file');
 }
 
-lock_server();//lock the server in case error happen
 
 
-tree("./data"); 
-load_hash_cache(true);
-trace_new_file();
-save_hash_cache();
+if(isset($_REQUEST['task']))
+    $task = $_REQUEST['task'];
+else
+    $task = 'help';
+
+if($task == 'list')
+{
+    lock_server();//lock the server in case error happen
+    
+    send_file('./.cache');
+    
+    unlink('./.lock');//delete the lock file
+}
+else if($task == 'get')
+{
+    if(!isset($_REQUEST['path']))
+    {
+        OnError('<h1>Error:the path is not set!</h1>');
+    }
+    $path = $_REQUEST['path'];
+    
+    if(strstr($path,'..')!=false)
+    {
+        OnError('<h1>Error:the path not allowed to contain the father dir!</h1>');
+    }
+    
+    send_file($path);
+}
+else if($task == 'add')
+{
+    lock_server();//lock the server in case error happen
+    tree("./data"); 
+    load_hash_cache(true);
+    trace_new_file();
+    save_hash_cache();
+    unlink('./.lock');//delete the lock file
+}
+else if($task == 'clone')
+{
+    lock_server();//lock the server in case error happen
+    if($IS_ROOT_SERVER)
+        OnError('<h1>Error:could not finish task clone.</h1>I am the root server!');
+    
+    echo 'Task will be run later!';
+    
+    //close the connection with browser
+    $size=ob_get_length();
+    header("Content-Length: $size");
+    header("Connection: Close");
+    ob_flush();
+    flush();
+    
+    //the connection is closed.do the clone task here
+    
+    sleep(rand(2,10));
+        
+    unlink('./.lock');//delete the lock file
+}
+else if($task == 'push')
+{
+    foreach($CHILD_SERVER_LIST as $url => $host)
+    {
+        echo send_get($url.'?task=clone',$host);    
+    }
+}
+else if($task == 'help')
+{
+    echo '<h1>This is the Help page.</h1>';
+}
 
 //print_r($local_dir_list);
 //print_r($local_file_list);
@@ -311,5 +415,5 @@ save_hash_cache();
 //print_r($dir_list);
 //print_r($file_list);
 
-unlink('./.lock');//delete the lock file
+
 ?>
