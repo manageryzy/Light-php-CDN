@@ -217,9 +217,10 @@ function load_hash_cache($ifUpdate)
     if($fp == false)
         return;
     
-    while($line = fscanf($fp,'%s %s %d %s %s\n')) 
+    while($line = fgets($fp)) 
     {
-        list($type,$path,$time,$md5,$sha) = $line;
+        
+        list($type,$path,$time,$md5,$sha) = split ("@", $line, 5);
 
         if($type == 'dir')
         {
@@ -273,12 +274,12 @@ function save_hash_cache()
     
     foreach($file_list as $key=>$value)
     {
-        fprintf($fp,"%s %s %d %s %s\n",'file',$value->file_path,$value->motify_time,$value->hash_md5,$value->hash_sha);
+        fprintf($fp,"%s@%s@%d@%s@%s\n",'file',$value->file_path,$value->motify_time,$value->hash_md5,$value->hash_sha);
     }
     
     foreach($dir_list as $key=>$value)
     {
-        fprintf($fp,"%s %s %d %s %s\n",'dir',$value->file_path,0,'0','0');
+        fprintf($fp,"%s@%s@%d@%s@%s\n",'dir',$value->file_path,0,'0','0');
     }
     
     fclose($fp);
@@ -383,9 +384,9 @@ function clone_server()
     logger($remote_cache_decode);
     
     $token = strtok($remote_cache_decode,"\n");
-    while($line = sscanf($token,'%s %s %d %s %s\n')) 
+    while($line = $token) 
     {
-        list($type,$path,$time,$md5,$sha) = $line;
+        list($type,$path,$time,$md5,$sha) = split ("@", $line, 5);
 
         if($type == 'dir')
         {
