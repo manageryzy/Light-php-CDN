@@ -196,7 +196,7 @@ function tree($directory)
 		} 
 		else if(($file!=".") AND ($file!=".."))
         {
-            if(!is_dir("$directory/$file"))
+            if(is_dir("$directory/$file")==false && file_exists("$directory/$file") )
                 $local_file_list[]="$directory/$file";
         }
 	} 
@@ -217,10 +217,10 @@ function load_hash_cache($ifUpdate)
     if($fp == false)
         return;
     
-    while($line = fgets($fp)) 
+    while($line = str_replace(array("\r\n", "\r", "\n"), "", fgets($fp))) 
     {
         
-        list($type,$path,$time,$md5,$sha) = split ("@", $line, 5);
+        list($type,$path,$time,$md5,$sha) = explode("@", $line, 5);
 
         if($type == 'dir')
         {
@@ -229,7 +229,7 @@ function load_hash_cache($ifUpdate)
             { 
                 if(file_exists($path))
                 {
-                    $file_list[$path] = $File;
+                    $dir_list[$path] = $File;
                 }
             }
             else
@@ -384,9 +384,9 @@ function clone_server()
     logger($remote_cache_decode);
     
     $token = strtok($remote_cache_decode,"\n");
-    while($line = $token) 
+    while($line = str_replace(array("\r\n", "\r", "\n"), "",$token)) 
     {
-        list($type,$path,$time,$md5,$sha) = split ("@", $line, 5);
+        list($type,$path,$time,$md5,$sha) = explode("@", $line, 5);
 
         if($type == 'dir')
         {
