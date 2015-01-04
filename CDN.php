@@ -447,7 +447,7 @@ function clone_server()
                 logger('downloading file:'.$path.' with different hash');
                 while(true)
                 {
-                    $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.$path,$SOURCE_SERVER_HOST);
+                    $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.base64_encode($path),$SOURCE_SERVER_HOST);
                     if($get == 'none') $cont ='';
                     else $cont = $AES->decode(base64_decode($get));
                     
@@ -484,7 +484,7 @@ function clone_server()
             logger('downloading file:'.$path.' do not exist');
             while(true)
             {
-                $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.$path,$SOURCE_SERVER_HOST);
+                $get = send_get($SOURCE_SERVER_PATH.'?task=get&path='.base64_encode($path),$SOURCE_SERVER_HOST);
                 if($get == 'none') $cont ='';
                 else $cont = $AES->decode(base64_decode($get));
                 if(md5($cont)==$hash->hash_md5 && sha1($cont)==$hash->hash_sha)
@@ -557,7 +557,7 @@ else if($task == 'get')
     {
         OnError('<h1>Error:the path is not set!</h1>');
     }
-    $path = $_REQUEST['path'];
+    $path = base64_decode($_REQUEST['path']);
     
     if(strstr($path,'..')!=false)
     {
