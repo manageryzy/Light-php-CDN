@@ -30,7 +30,12 @@ $local_dir_list = array();
 $remote_file_list = array();
 $remote_dir_list = array();
 
-
+$Server_System;
+if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+    $Server_System = 'windows';//filename will be changed into utf-8 in windows
+} else {
+    $Server_System = 'linux';
+}
 //---------------------------------
 //     php settings
 
@@ -52,9 +57,9 @@ class HashCache
     {
         if($ifUpdate)
         {
-            if(file_exists($FILE_PATH))
+            if(my_file_exists($FILE_PATH))
             {
-                $time = filemtime($FILE_PATH);
+                $time = my_filemtime($FILE_PATH);
                 if($time==false)
                 {
                     //error in getting file time
@@ -75,8 +80,8 @@ class HashCache
                 {
                     //changed
                     $this->file_path = $FILE_PATH;
-                    $this->hash_md5 = md5_file($FILE_PATH);
-                    $this->hash_sha = sha1_file($FILE_PATH);
+                    $this->hash_md5 = my_md5_file($FILE_PATH);
+                    $this->hash_sha = my_sha1_file($FILE_PATH);
                     $this->motify_time = $time;
                 }
             }
@@ -149,10 +154,84 @@ function logger($info)
 //error dealing
 function OnError($info)
 {
-    if(file_exists('./.lock'))
+    if(my_file_exists('./.lock'))
         unlink('./.lock');
     logger($info);
     die($info);
+}
+
+//
+function my_file_exists($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    return file_exists($path);
+}
+
+function my_file_get_contents($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    return file_get_contents($path);
+}
+
+function my_filemtime($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    return filemtime($path);
+}
+
+function my_file_put_contents($path,$data)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    return file_put_contents($path,$data);
+}
+
+function my_is_dir($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+
+    return is_dir($path);
+}
+
+function my_md5_file($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    
+    return md5_file($path);
+}
+
+function my_sha1_file($path)
+{
+    global $Server_System;
+    if($Server_System == 'windows')
+    {
+        $path = iconv('utf-8','gbk',$path);
+    }
+    
+    return sha1_file($path);
 }
 
 //lock the server when do the atom opetate
@@ -184,20 +263,25 @@ function send_get($url,$host) {
 //trace the local file
 function tree($directory) 
 { 
-    global $local_file_list,$local_dir_list;
+    global $local_file_list,$local_dir_list,$Server_System;
 	$mydir = dir($directory); 
 
 	while($file = $mydir->read())
 	{ 
-		if((is_dir("$directory/$file")) AND ($file!=".") AND ($file!="..")) 
+        if($Server_System == 'windows')
+            $full_path=iconv('gbk','utf-8',"$directory/$file");
+        else
+            $full_path="$directory/$file";
+
+		if((my_is_dir($full_path)) AND ($file!=".") AND ($file!="..")) 
 		{
-            $local_dir_list[]="$directory/$file";
-			tree("$directory/$file"); 
+            $local_dir_list[]=$full_path;
+			tree($full_path); 
 		} 
 		else if(($file!=".") AND ($file!=".."))
         {
-            if(is_dir("$directory/$file")==false && file_exists("$directory/$file") )
-                $local_file_list[]="$directory/$file";
+            if(my_is_dir($full_path)==false && my_file_exists($full_path) )
+                $local_file_list[]=$full_path;
         }
 	} 
 
@@ -209,7 +293,7 @@ function load_hash_cache($ifUpdate)
 {
     global $file_list,$dir_list;
     
-    if(!file_exists('./.cache'))
+    if(!my_file_exists('./.cache'))
         return;
     
     $fp = fopen('./.cache','r');
@@ -227,7 +311,7 @@ function load_hash_cache($ifUpdate)
             $File = new HashCache(false,$path,'0','0',0);
             if($ifUpdate)
             { 
-                if(file_exists($path))
+                if(my_file_exists($path))
                 {
                     $dir_list[$path] = $File;
                 }
@@ -314,12 +398,13 @@ function trace_new_file()
 function send_file($path)
 {
     global $SERVER_KEY;
-    if(!file_exists($path))
+    if(!my_file_exists($path))
     {
-        OnError('<h1>Error:Can not read file!</h1>');
+        OnError('<h1>Error:Can not read file!</h1>'.$path.'<br>'.iconv('utf-8','gbk',$path));
     }
+    else
+        $cont = my_file_get_contents($path);
     
-    $cont = file_get_contents($path);
     if($cont == '')
     {
         echo 'none';
@@ -342,7 +427,7 @@ function deldir($dir) {
         if($file!="." && $file!="..") 
         {
             $fullpath=$dir."/".$file;
-            if(!is_dir($fullpath)) 
+            if(!my_is_dir($fullpath)) 
             {
                 unlink($fullpath);
             } 
@@ -453,7 +538,7 @@ function clone_server()
                     
                     if(md5($cont)==$remote_file_list[$path]->hash_md5 && sha1($cont)==$remote_file_list[$path]->hash_sha)
                     {
-                        if(file_put_contents($path,$cont) === false)
+                        if(my_file_put_contents($path,$cont) === false)
                         {
                             logger('could not write to '.$path);
                             break;
@@ -467,7 +552,7 @@ function clone_server()
                     else
                     {
                         logger('redownloading for the hash do not same');
-                        logger('count:'.$cont.' md5:'.md5($cont).' md5:'.$remote_file_list[$path]->hash_md5);
+                        logger('path:'.$path.' local_md5:'.md5($cont).' remote_md5:'.$remote_file_list[$path]->hash_md5);
                         sleep(1);
                     }
                 }
@@ -489,7 +574,7 @@ function clone_server()
                 else $cont = $AES->decode(base64_decode($get));
                 if(md5($cont)==$hash->hash_md5 && sha1($cont)==$hash->hash_sha)
                 {
-                    if(file_put_contents($path,$cont) === false)
+                    if(my_file_put_contents($path,$cont) === false)
                     {
                         logger('could not write to '.$path);
                         break;
@@ -511,7 +596,7 @@ function clone_server()
     }
     
     //write the .cache file
-    file_put_contents('./.cache',$remote_cache_decode);
+    my_file_put_contents('./.cache',$remote_cache_decode);
 }
 
 //------------------------------------------
@@ -525,7 +610,7 @@ if($_SERVER['HTTP_HOST'] != $ACCEPT_HOST)
 }
 
 //die if the server is busy
-if(file_exists('./.lock')!=false)
+if(my_file_exists('./.lock')!=false)
 {
     //Do not use OnError Here.
     die('<h1>Sorry ! the CDN is busy now!</h1><br>If you think it is an error,please delete the .lock file');
@@ -566,6 +651,7 @@ else if($task == 'get')
     
     logger('-------------------');
     logger('Task get running');
+    logger($_REQUEST['path']);
     
     send_file($path);
     
